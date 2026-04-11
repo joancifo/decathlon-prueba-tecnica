@@ -1,0 +1,13 @@
+---
+description: Project context for auth technical test
+globs: ["**/*.ts", "**/*.tsx"]
+alwaysApply: true
+---
+
+- Framework: Next.js 16+ App Router with TypeScript
+- Auth: Server-side Authorization Code flow, NO next-auth
+- Tokens stored in iron-session encrypted httpOnly cookies
+- Mock IdP inside the same app under /api/idp/*
+- All token operations are server-only, never exposed to client
+- Styling: Tailwind CSS, clean and minimal
+- Use named exports for utilities, default exports for pages/components
