@@ -6,12 +6,20 @@ Server-side OAuth 2.0 Authorization Code Grant with encrypted `httpOnly` session
 
 ## Architecture
 
-High-level flow:
+The app is a Next.js App Router project with **route groups** (folders in parentheses do not appear in the URL):
 
-1. `src/proxy.ts` protects private routes and redirects unauthenticated requests to `/api/auth/login`.
-2. `/api/auth/login` creates OAuth `state` in the encrypted session and redirects to `/api/idp/authorize`.
-3. `/api/auth/callback` validates `state`, exchanges `code` on `/api/idp/token`, and stores tokens in the `httpOnly` cookie.
-4. `src/proxy.ts` keeps sessions fresh with proactive token refresh before access token expiry.
+- **Public UI:** `/` — landing and entry to sign-in; `/auth/error` — readable OAuth failure messages without going through the proxy.
+- **Protected UI:** `/app/**` — only these paths are intercepted by `src/proxy.ts` (see `config.matcher`). Everything else under `/app` inherits the same rules.
+- **Auth API:** `/api/auth/*` — login redirect, OAuth callback, logout (always reachable; not behind the proxy).
+- **Mock IdP:** `/api/idp/*` — authorize UI, token endpoint, userinfo, logout (same host as the app for the exercise).
+
+**High-level flow**
+
+1. A request to a protected page (e.g. `GET /app/dashboard`) hits `src/proxy.ts`. If the encrypted session cookie does not contain valid tokens, the proxy responds with **307** to `/api/auth/login`.
+2. `/api/auth/login` stores OAuth `state` in the same iron-session cookie and redirects to **`GET /api/idp/authorize`** with `response_type=code`.
+3. After the user signs in at the mock IdP, the browser lands on **`GET /api/auth/callback`**. The handler checks `state`, exchanges `code` for tokens with **`POST /api/idp/token`** (server-to-server), then persists `access_token`, `refresh_token`, and `expires_at` in the cookie and redirects to **`/app/dashboard`**.
+4. On later **`GET /app/...`** requests, if the access token expires in less than **2 minutes**, the proxy calls **`POST /api/idp/token`** with `grant_type=refresh_token`, updates the cookie, and continues — no extra navigation for the user.
+5. Server components or route handlers that call a protected backend can use **`src/lib/authFetch.ts`**: on **401** it refreshes once, saves the session (where the runtime allows), and retries the same request.
 
 The sequence diagram below is the source of truth for request/response statuses and redirects.
 
@@ -26,8 +34,8 @@ sequenceDiagram
     participant Next as Next.js Server
     participant IdP as Mock IdP (/api/idp)
 
-    User->>Browser: navigate to /dashboard
-    Browser->>Next: GET /dashboard
+    User->>Browser: navigate to /app/dashboard
+    Browser->>Next: GET /app/dashboard
     Next->>Next: proxy.ts — no session cookie
     Next-->>Browser: 307 /api/auth/login
 
@@ -48,14 +56,14 @@ sequenceDiagram
     Next->>IdP: POST /api/idp/token (server-to-server)
     IdP-->>Next: { access_token, refresh_token, expires_in }
     Next->>Next: encrypt tokens → httpOnly session cookie
-    Next-->>Browser: 307 /dashboard (Set-Cookie: session)
+    Next-->>Browser: 307 /app/dashboard (Set-Cookie: session)
 
-    Browser->>Next: GET /dashboard (with session cookie)
+    Browser->>Next: GET /app/dashboard (with session cookie)
     Next->>Next: proxy.ts — session valid
     Next-->>Browser: 200 dashboard HTML
 
     note over Next: --- Auto-refresh (proxy) ---
-    Browser->>Next: any request (token < 2 min left)
+    Browser->>Next: GET /app/... (under 2 min to expiry)
     Next->>IdP: POST /api/idp/token (refresh_token)
     IdP-->>Next: new access_token
     Next->>Next: update session cookie
@@ -129,7 +137,7 @@ Doing the token exchange on the server means the browser never sees the raw toke
 
 ### Why `proxy.ts` and not `middleware.ts`?
 
-Next.js 16 deprecated `middleware.ts` and renamed the file convention to `proxy.ts` (function renamed from `middleware` to `proxy`). The behaviour is identical — it intercepts every request before routing. See the [migration guide](https://nextjs.org/docs/app/api-reference/file-conventions/proxy#migration-to-proxy).
+Next.js 16 deprecated `middleware.ts` and renamed the file convention to `proxy.ts` (export renamed from `middleware` to `proxy`). It runs **before routing** for URLs matched by `config.matcher` (here, `/app/:path*`), not for the whole site. See the [migration guide](https://nextjs.org/docs/app/api-reference/file-conventions/proxy#migration-to-proxy).
 
 ### Token refresh strategy
 
@@ -147,22 +155,45 @@ Refresh requests are bound to the OAuth client identifier stored by the mock IdP
 ```
 src/
 ├── app/
+│   ├── (auth)/auth/error/page.tsx       — OAuth error copy (invalid state, token exchange, etc.)
+│   ├── (protected)/app/dashboard/
+│   │   ├── page.tsx                     — protected dashboard (server component)
+│   │   ├── error.tsx                    — dashboard error boundary
+│   │   └── loading.tsx                  — dashboard loading UI
+│   ├── (public)/page.tsx                — public landing / login entry
 │   ├── api/
 │   │   ├── auth/
-│   │   │   ├── callback/route.ts   — exchanges auth code for tokens
-│   │   │   ├── login/route.ts      — initiates the OAuth flow
-│   │   │   └── logout/route.ts     — destroys session, notifies the IdP mock
+│   │   │   ├── callback/route.ts        — exchanges auth code for tokens
+│   │   │   ├── login/route.ts           — initiates the OAuth flow
+│   │   │   └── logout/route.ts          — destroys session, notifies the IdP mock
 │   │   └── idp/
-│   │       ├── authorize/route.ts  — mock IdP login page + code issuance
-│   │       ├── logout/route.ts     — revokes refresh tokens
-│   │       ├── token/route.ts      — code exchange + refresh grant
-│   │       └── userinfo/route.ts   — returns user profile for valid token
-│   ├── dashboard/page.tsx          — protected server component
-│   └── page.tsx                    — public landing page
+│   │       ├── authorize/route.ts     — mock IdP login page + code issuance
+│   │       ├── logout/route.ts          — revokes refresh tokens
+│   │       ├── token/route.ts           — code exchange + refresh grant
+│   │       └── userinfo/route.ts        — returns user profile for valid token
+│   ├── globals.css
+│   └── layout.tsx
+├── components/
+│   ├── layout/page-shell.tsx            — shared page chrome
+│   └── ui/page-card.tsx                 — card layout primitive
+├── features/
+│   ├── auth/components/                 — login and auth error panels
+│   └── dashboard/components/            — dashboard session panel
 ├── lib/
-│   ├── authFetch.ts                — authenticated fetch helper with transparent retry
-│   ├── auth-client.ts              — shared OAuth client identifier
-│   ├── mock-idp.ts                 — in-memory IdP store + JWT helpers
-│   └── session.ts                  — iron-session read/write helpers
-└── proxy.ts                        — route protection + proactive token refresh
+│   ├── authFetch.ts                     — authenticated fetch + 401 retry
+│   ├── auth-client.ts                   — shared OAuth client identifier
+│   ├── mock-idp.ts                      — in-memory IdP store + JWT helpers
+│   ├── request-body.ts                  — form/json body parsing for route handlers
+│   ├── session.ts                       — iron-session read/write helpers
+│   ├── token-refresh.ts                 — refresh_token grant to the mock IdP
+│   └── test/cookie-helpers.ts           — test utilities for Set-Cookie assertions
+├── tests/
+│   ├── proxy.test.ts                    — proxy redirect, refresh, and failure paths
+│   └── api/
+│       ├── auth-routes.test.ts          — login, callback, logout integration tests
+│       └── idp-routes.test.ts           — mock IdP token and userinfo tests
+├── types/auth.ts                        — shared auth-related TypeScript types
+└── proxy.ts                             — route protection + proactive token refresh
 ```
+
+App routes resolve to URLs without the parentheses: `/`, `/auth/error`, `/app/dashboard`. The proxy `matcher` in `proxy.ts` only protects `/app/:path*`.
