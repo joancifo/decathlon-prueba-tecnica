@@ -18,8 +18,6 @@ export async function GET(request: NextRequest) {
   authorizeUrl.searchParams.set("state", state);
   authorizeUrl.searchParams.set("response_type", "code");
 
-  console.log("[AuthLogin] Generating state:", state);
-
   const response = NextResponse.redirect(authorizeUrl, 307);
 
   response.headers.set("cache-control", "no-store, no-cache, must-revalidate, proxy-revalidate");

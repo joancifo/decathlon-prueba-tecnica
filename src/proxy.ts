@@ -54,13 +54,9 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Protect every path except:
-     *   /              — public landing page (no chars after the leading slash)
-     *   /api/auth/**   — auth flow handlers
-     *   /api/idp/**    — mock IdP handlers
-     *   /_next/**      — Next.js internals + static assets
-     *   /favicon.ico   — browser icon
+     * Protect only application routes under /app/**.
+     * Public pages (/ and /auth/error) and API handlers remain accessible.
      */
-    "/((?!api/auth|api/idp|_next|favicon\\.ico$).+)",
+    "/app/:path*",
   ],
 };

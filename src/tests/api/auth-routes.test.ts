@@ -8,10 +8,7 @@ import { POST as authorizePost } from "@/app/api/idp/authorize/route";
 import { POST as idpLogoutPost } from "@/app/api/idp/logout/route";
 import { POST as tokenPost } from "@/app/api/idp/token/route";
 import { resetMockIdpStore } from "@/lib/mock-idp";
-import {
-  getAuthSessionForRequest,
-  readStoredAuthSession,
-} from "@/lib/session";
+import { getAuthSessionForRequest, readStoredAuthSession } from "@/lib/session";
 import {
   extractCookieValue,
   extractSetCookieHeaders,
@@ -134,13 +131,13 @@ describe("Server-side auth flow", () => {
 
     expect(callbackResponse.status).toBe(307);
     expect(callbackResponse.headers.get("location")).toBe(
-      "http://localhost:3000/dashboard"
+      "http://localhost:3000/app/dashboard"
     );
     expect(sessionCookie).toContain("HttpOnly");
     expect(sessionCookie).toContain("Secure");
     expect(sessionCookie).toMatch(/SameSite=(Lax|lax)/);
 
-    const sessionRequest = new NextRequest("http://localhost:3000/dashboard", {
+    const sessionRequest = new NextRequest("http://localhost:3000/app/dashboard", {
       headers: {
         cookie: extractCookieValue(sessionCookie!),
       },
@@ -180,7 +177,7 @@ describe("Server-side auth flow", () => {
       "decathlon_auth_session"
     );
     const sessionAfterLogout = await getAuthSessionForRequest(
-      new NextRequest("http://localhost:3000/dashboard", {
+      new NextRequest("http://localhost:3000/app/dashboard", {
         headers: {
           cookie: extractCookieValue(clearedSessionCookie!),
         },

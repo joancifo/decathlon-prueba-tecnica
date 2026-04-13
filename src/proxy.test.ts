@@ -36,7 +36,7 @@ afterEach(() => {
 describe("proxy", () => {
   it("redirects unauthenticated requests to the auth login route", async () => {
     const response = await proxy(
-      new NextRequest("http://localhost:3000/dashboard")
+      new NextRequest("http://localhost:3000/app/dashboard")
     );
 
     expect(response.status).toBe(307);
@@ -58,7 +58,7 @@ describe("proxy", () => {
     );
 
     const response = await proxy(
-      new NextRequest("http://localhost:3000/dashboard", {
+      new NextRequest("http://localhost:3000/app/dashboard", {
         headers: {
           cookie: sessionCookie,
         },
@@ -86,7 +86,7 @@ describe("proxy", () => {
     expect(refreshedCookie).toBeTruthy();
 
     const refreshedSession = await getAuthSessionForRequest(
-      new NextRequest("http://localhost:3000/dashboard", {
+      new NextRequest("http://localhost:3000/app/dashboard", {
         headers: {
           cookie: extractCookieValue(refreshedCookie!),
         },
@@ -114,7 +114,7 @@ describe("proxy", () => {
     );
 
     const response = await proxy(
-      new NextRequest("http://localhost:3000/dashboard", {
+      new NextRequest("http://localhost:3000/app/dashboard", {
         headers: {
           cookie: sessionCookie,
         },
@@ -133,8 +133,6 @@ describe("proxy", () => {
   });
 
   it("keeps the public and auth exclusions in the matcher", () => {
-    expect(config.matcher).toEqual([
-      "/((?!api/auth|api/idp|_next|favicon\\.ico$).+)",
-    ]);
+    expect(config.matcher).toEqual(["/app/:path*"]);
   });
 });
