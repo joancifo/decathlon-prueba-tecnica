@@ -116,6 +116,7 @@ export async function POST(request: NextRequest) {
   redirectUrl.searchParams.set("state", params.state);
 
   return NextResponse.redirect(redirectUrl, {
+    status: 303,
     headers: {
       "cache-control": "no-store",
     },

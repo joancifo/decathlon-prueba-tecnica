@@ -5,10 +5,11 @@ import { GET as authorizeGet, POST as authorizePost } from "@/app/api/idp/author
 import { POST as logoutPost } from "@/app/api/idp/logout/route";
 import { POST as tokenPost } from "@/app/api/idp/token/route";
 import { GET as userinfoGet } from "@/app/api/idp/userinfo/route";
+import { AUTH_CLIENT_ID } from "@/lib/auth-client";
 import { resetMockIdpStore } from "@/lib/mock-idp";
 
 const authorizeUrl =
-  "http://localhost:3000/api/idp/authorize?client_id=web-client&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&state=test-state&response_type=code";
+  `http://localhost:3000/api/idp/authorize?client_id=${AUTH_CLIENT_ID}&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&state=test-state&response_type=code`;
 
 beforeEach(() => {
   resetMockIdpStore();
@@ -24,7 +25,7 @@ function createFormRequest(url: string, formData: FormData) {
 async function issueAuthorizationCode() {
   const formData = new FormData();
 
-  formData.set("client_id", "web-client");
+  formData.set("client_id", AUTH_CLIENT_ID);
   formData.set("redirect_uri", "http://localhost:3000/callback");
   formData.set("state", "test-state");
   formData.set("response_type", "code");
@@ -33,7 +34,7 @@ async function issueAuthorizationCode() {
 
   const response = await authorizePost(createFormRequest(authorizeUrl, formData));
 
-  expect(response.status).toBe(307);
+  expect(response.status).toBe(303);
 
   const location = response.headers.get("location");
 
@@ -47,7 +48,7 @@ async function exchangeAuthorizationCode(code: string) {
 
   body.set("grant_type", "authorization_code");
   body.set("code", code);
-  body.set("client_id", "web-client");
+  body.set("client_id", AUTH_CLIENT_ID);
   body.set("redirect_uri", "http://localhost:3000/callback");
 
   const response = await tokenPost(
@@ -154,6 +155,33 @@ describe("Mock idp route handlers", () => {
         method: "POST",
         body: JSON.stringify({
           grant_type: "refresh_token",
+          client_id: AUTH_CLIENT_ID,
+          refresh_token: tokenResponse.refresh_token,
+        }),
+        headers: {
+          "content-type": "application/json",
+        },
+      })
+    );
+
+    expect(refreshResponse.status).toBe(400);
+    await expect(refreshResponse.json()).resolves.toMatchObject({
+      error: "invalid_grant",
+    });
+  });
+
+  it("rejects refresh token requests from a different client", async () => {
+    const redirectUrl = await issueAuthorizationCode();
+    const tokenResponse = await exchangeAuthorizationCode(
+      redirectUrl.searchParams.get("code")!
+    );
+
+    const refreshResponse = await tokenPost(
+      new NextRequest("http://localhost:3000/api/idp/token", {
+        method: "POST",
+        body: JSON.stringify({
+          grant_type: "refresh_token",
+          client_id: "another-client",
           refresh_token: tokenResponse.refresh_token,
         }),
         headers: {

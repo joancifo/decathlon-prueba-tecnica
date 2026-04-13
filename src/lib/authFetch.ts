@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 
 import { getAuthSession } from "@/lib/session";
+import { refreshAccessToken } from "@/lib/token-refresh";
 
 export class AuthError extends Error {
   constructor(message: string) {
@@ -59,34 +60,21 @@ export async function authFetch(
 
   // Access token was rejected — try to get a fresh one.
   const origin = await getOrigin();
-  const tokenRes = await fetch(`${origin}/api/idp/token`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "refresh_token",
-      refresh_token: session.refreshToken,
-    }),
-    cache: "no-store",
+  const refreshedSession = await refreshAccessToken(
+    origin,
+    session.refreshToken
+  ).catch(() => {
+    throw new AuthError("Token refresh failed — please sign in again");
   });
 
-  if (!tokenRes.ok) {
-    throw new AuthError("Token refresh failed — please sign in again");
-  }
-
-  const tokens = (await tokenRes.json()) as {
-    access_token: string;
-    refresh_token: string;
-    expires_in: number;
-  };
-
   // Persist the new session (works in Route Handlers / Server Functions).
-  session.accessToken = tokens.access_token;
-  session.refreshToken = tokens.refresh_token;
-  session.expiresAt = Date.now() + tokens.expires_in * 1000;
+  session.accessToken = refreshedSession.accessToken;
+  session.refreshToken = refreshedSession.refreshToken;
+  session.expiresAt = refreshedSession.expiresAt;
   await session.save();
 
   // Retry the original request with the refreshed token.
-  const retryRes = await fetch(url, withBearer(tokens.access_token));
+  const retryRes = await fetch(url, withBearer(refreshedSession.accessToken));
 
   if (retryRes.status === 401) {
     throw new AuthError("Authentication failed after token refresh");

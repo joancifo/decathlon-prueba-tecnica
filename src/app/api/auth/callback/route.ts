@@ -1,27 +1,29 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { saveAuthSession } from "@/lib/session";
+
+import { AUTH_CLIENT_ID } from "@/lib/auth-client";
+import { getAuthSessionForRequest, saveAuthSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const AUTH_CLIENT_ID = "nextjs-server-app";
-const AUTH_STATE_COOKIE_NAME = "decathlon_oauth_state";
+async function clearPendingOAuthState(request: NextRequest, response: NextResponse) {
+  response.headers.set("cache-control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  response.headers.set("pragma", "no-cache");
+  response.headers.set("expires", "0");
+  const session = await getAuthSessionForRequest(request, response);
 
-function clearStateCookie(response: NextResponse) {
-  response.headers.set("cache-control", "no-store");
-  response.cookies.set(AUTH_STATE_COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
+  delete session.oauthState;
+  await session.save();
 }
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
-  const storedState = request.cookies.get(AUTH_STATE_COOKIE_NAME)?.value;
+  const sessionProbe = await getAuthSessionForRequest(request, new Response());
+  const storedState = sessionProbe.oauthState;
+
+  console.log("[AuthCallback] Received state:", state);
+  console.log("[AuthCallback] Stored state:", storedState);
 
   if (!code || !state || !storedState || state !== storedState) {
     const response = NextResponse.json(
@@ -34,7 +36,7 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    clearStateCookie(response);
+    await clearPendingOAuthState(request, response);
 
     return response;
   }
@@ -60,7 +62,7 @@ export async function GET(request: NextRequest) {
       status: tokenResponse.status,
     });
 
-    clearStateCookie(response);
+    await clearPendingOAuthState(request, response);
 
     return response;
   }
@@ -71,8 +73,6 @@ export async function GET(request: NextRequest) {
     expires_in: number;
   };
   const response = NextResponse.redirect(new URL("/dashboard", request.nextUrl.origin));
-
-  clearStateCookie(response);
 
   await saveAuthSession(request, response, {
     accessToken: tokens.access_token,

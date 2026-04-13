@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 import { getAuthSessionForRequest, readStoredAuthSession } from "@/lib/session";
+import { refreshAccessToken } from "@/lib/token-refresh";
 
 // Proactively refresh when less than 2 minutes remain on the access token.
 const REFRESH_THRESHOLD_MS = 2 * 60 * 1000;
@@ -23,29 +24,14 @@ export async function proxy(request: NextRequest) {
 
   // Token is about to expire — refresh before continuing.
   try {
-    const tokenRes = await fetch(new URL("/api/idp/token", request.url), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "refresh_token",
-        refresh_token: stored.refreshToken,
-      }),
-      cache: "no-store",
-    });
+    const refreshedSession = await refreshAccessToken(
+      request.nextUrl.origin,
+      stored.refreshToken
+    );
 
-    if (!tokenRes.ok) {
-      throw new Error(`IdP returned ${tokenRes.status}`);
-    }
-
-    const tokens = (await tokenRes.json()) as {
-      access_token: string;
-      refresh_token: string;
-      expires_in: number;
-    };
-
-    session.accessToken = tokens.access_token;
-    session.refreshToken = tokens.refresh_token;
-    session.expiresAt = Date.now() + tokens.expires_in * 1000;
+    session.accessToken = refreshedSession.accessToken;
+    session.refreshToken = refreshedSession.refreshToken;
+    session.expiresAt = refreshedSession.expiresAt;
     await session.save();
 
     return response;

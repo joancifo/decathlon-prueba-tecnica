@@ -12,18 +12,11 @@ import {
   getAuthSessionForRequest,
   readStoredAuthSession,
 } from "@/lib/session";
-
-function extractSetCookieHeaders(response: Response) {
-  return response.headers.getSetCookie();
-}
-
-function extractCookieValue(setCookieHeader: string) {
-  return setCookieHeader.split(";")[0] ?? "";
-}
-
-function findCookie(headers: string[], cookieName: string) {
-  return headers.find((header) => header.startsWith(`${cookieName}=`)) ?? null;
-}
+import {
+  extractCookieValue,
+  extractSetCookieHeaders,
+  findCookie,
+} from "@/test/cookie-helpers";
 
 function createInternalFetchResponse(url: URL, init?: RequestInit) {
   const method = init?.method ?? "GET";
@@ -52,6 +45,47 @@ function createInternalFetchResponse(url: URL, init?: RequestInit) {
   return Promise.resolve(new Response("Not found", { status: 404 }));
 }
 
+async function loginThroughMockIdp() {
+  const loginResponse = await loginGet(
+    new NextRequest("http://localhost:3000/api/auth/login")
+  );
+  const authorizeUrl = new URL(loginResponse.headers.get("location")!);
+  const sessionCookieFromLogin = findCookie(
+    extractSetCookieHeaders(loginResponse),
+    "decathlon_auth_session"
+  );
+  const authorizeForm = new FormData();
+
+  authorizeForm.set("client_id", authorizeUrl.searchParams.get("client_id")!);
+  authorizeForm.set(
+    "redirect_uri",
+    authorizeUrl.searchParams.get("redirect_uri")!
+  );
+  authorizeForm.set("state", authorizeUrl.searchParams.get("state")!);
+  authorizeForm.set(
+    "response_type",
+    authorizeUrl.searchParams.get("response_type")!
+  );
+  authorizeForm.set("email", "demo@test.com");
+  authorizeForm.set("password", "password123");
+
+  const authorizeResponse = await authorizePost(
+    new NextRequest(authorizeUrl, {
+      method: "POST",
+      body: authorizeForm,
+    })
+  );
+  const callbackResponse = await callbackGet(
+    new NextRequest(authorizeResponse.headers.get("location")!, {
+      headers: {
+        cookie: extractCookieValue(sessionCookieFromLogin!),
+      },
+    })
+  );
+
+  return { callbackResponse };
+}
+
 beforeEach(() => {
   resetMockIdpStore();
   vi.stubGlobal("fetch", vi.fn(createInternalFetchResponse));
@@ -62,14 +96,14 @@ afterEach(() => {
 });
 
 describe("Server-side auth flow", () => {
-  it("redirects to the mock IdP and stores a temporary state cookie", async () => {
+  it("redirects to the mock IdP and stores oauth state in the encrypted session", async () => {
     const response = await loginGet(
       new NextRequest("http://localhost:3000/api/auth/login")
     );
     const redirectUrl = new URL(response.headers.get("location")!);
-    const stateCookie = findCookie(
+    const sessionCookie = findCookie(
       extractSetCookieHeaders(response),
-      "decathlon_oauth_state"
+      "decathlon_auth_session"
     );
 
     expect(response.status).toBe(307);
@@ -77,53 +111,26 @@ describe("Server-side auth flow", () => {
     expect(redirectUrl.searchParams.get("client_id")).toBe("nextjs-server-app");
     expect(redirectUrl.searchParams.get("response_type")).toBe("code");
     expect(redirectUrl.searchParams.get("state")).toBeTruthy();
-    expect(stateCookie).toContain("HttpOnly");
-    expect(stateCookie).toContain("Secure");
-    expect(stateCookie).toContain("SameSite=lax");
+    expect(sessionCookie).toContain("HttpOnly");
+    expect(sessionCookie).toContain("Secure");
+    expect(sessionCookie).toMatch(/SameSite=(Lax|lax)/);
+
+    const session = await getAuthSessionForRequest(
+      new NextRequest("http://localhost:3000/", {
+        headers: {
+          cookie: extractCookieValue(sessionCookie!),
+        },
+      }),
+      new Response(null)
+    );
+
+    expect(session.oauthState).toBe(redirectUrl.searchParams.get("state"));
   });
 
   it("exchanges the code and stores the encrypted session in a cookie", async () => {
-    const loginResponse = await loginGet(
-      new NextRequest("http://localhost:3000/api/auth/login")
-    );
-    const authorizeUrl = new URL(loginResponse.headers.get("location")!);
-    const stateCookie = findCookie(
-      extractSetCookieHeaders(loginResponse),
-      "decathlon_oauth_state"
-    );
-    const stateCookieValue = extractCookieValue(stateCookie!);
-    const authorizeForm = new FormData();
-
-    authorizeForm.set("client_id", authorizeUrl.searchParams.get("client_id")!);
-    authorizeForm.set(
-      "redirect_uri",
-      authorizeUrl.searchParams.get("redirect_uri")!
-    );
-    authorizeForm.set("state", authorizeUrl.searchParams.get("state")!);
-    authorizeForm.set(
-      "response_type",
-      authorizeUrl.searchParams.get("response_type")!
-    );
-    authorizeForm.set("email", "demo@test.com");
-    authorizeForm.set("password", "password123");
-
-    const authorizeResponse = await authorizePost(
-      new NextRequest(authorizeUrl, {
-        method: "POST",
-        body: authorizeForm,
-      })
-    );
-    const callbackUrl = authorizeResponse.headers.get("location");
-    const callbackResponse = await callbackGet(
-      new NextRequest(callbackUrl!, {
-        headers: {
-          cookie: stateCookieValue,
-        },
-      })
-    );
+    const { callbackResponse } = await loginThroughMockIdp();
     const setCookies = extractSetCookieHeaders(callbackResponse);
     const sessionCookie = findCookie(setCookies, "decathlon_auth_session");
-    const clearStateCookie = findCookie(setCookies, "decathlon_oauth_state");
 
     expect(callbackResponse.status).toBe(307);
     expect(callbackResponse.headers.get("location")).toBe(
@@ -132,7 +139,6 @@ describe("Server-side auth flow", () => {
     expect(sessionCookie).toContain("HttpOnly");
     expect(sessionCookie).toContain("Secure");
     expect(sessionCookie).toMatch(/SameSite=(Lax|lax)/);
-    expect(clearStateCookie).toContain("Max-Age=0");
 
     const sessionRequest = new NextRequest("http://localhost:3000/dashboard", {
       headers: {
@@ -145,6 +151,7 @@ describe("Server-side auth flow", () => {
     );
     const storedSession = readStoredAuthSession(session);
 
+    expect(session.oauthState).toBeUndefined();
     expect(storedSession).not.toBeNull();
     expect(storedSession?.accessToken).toBeTruthy();
     expect(storedSession?.refreshToken).toBeTruthy();
@@ -154,42 +161,8 @@ describe("Server-side auth flow", () => {
   });
 
   it("destroys the encrypted session and revokes the refresh token on logout", async () => {
-    const loginResponse = await loginGet(
-      new NextRequest("http://localhost:3000/api/auth/login")
-    );
-    const authorizeUrl = new URL(loginResponse.headers.get("location")!);
-    const stateCookieValue = extractCookieValue(
-      findCookie(extractSetCookieHeaders(loginResponse), "decathlon_oauth_state")!
-    );
-    const authorizeForm = new FormData();
-
-    authorizeForm.set("client_id", authorizeUrl.searchParams.get("client_id")!);
-    authorizeForm.set(
-      "redirect_uri",
-      authorizeUrl.searchParams.get("redirect_uri")!
-    );
-    authorizeForm.set("state", authorizeUrl.searchParams.get("state")!);
-    authorizeForm.set(
-      "response_type",
-      authorizeUrl.searchParams.get("response_type")!
-    );
-    authorizeForm.set("email", "demo@test.com");
-    authorizeForm.set("password", "password123");
-
-    const authorizeResponse = await authorizePost(
-      new NextRequest(authorizeUrl, {
-        method: "POST",
-        body: authorizeForm,
-      })
-    );
-    const callbackResponse = await callbackGet(
-      new NextRequest(authorizeResponse.headers.get("location")!, {
-        headers: {
-          cookie: stateCookieValue,
-        },
-      })
-    );
-    const sessionCookieValue = extractCookieValue(
+    const { callbackResponse } = await loginThroughMockIdp();
+    const loggedInSessionCookie = extractCookieValue(
       findCookie(
         extractSetCookieHeaders(callbackResponse),
         "decathlon_auth_session"
@@ -198,7 +171,7 @@ describe("Server-side auth flow", () => {
     const logoutResponse = await logoutGet(
       new NextRequest("http://localhost:3000/api/auth/logout", {
         headers: {
-          cookie: sessionCookieValue,
+          cookie: loggedInSessionCookie,
         },
       })
     );

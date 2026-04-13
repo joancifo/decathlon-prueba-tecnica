@@ -5,6 +5,8 @@ export type AuthSessionData = {
   accessToken?: string;
   refreshToken?: string;
   expiresAt?: number;
+  /** CSRF state for the in-flight authorization code flow (server-only). */
+  oauthState?: string;
 };
 
 export type StoredAuthSession = {
@@ -83,6 +85,7 @@ export async function saveAuthSession(
   session.accessToken = sessionData.accessToken;
   session.refreshToken = sessionData.refreshToken;
   session.expiresAt = sessionData.expiresAt;
+  delete session.oauthState;
 
   await session.save();
 }

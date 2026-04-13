@@ -6,60 +6,14 @@ Server-side OAuth 2.0 Authorization Code Grant with encrypted `httpOnly` session
 
 ## Architecture
 
-```
-Browser                 Next.js Server              Mock IdP (same app)
-  │                          │                              │
-  │  GET /dashboard          │                              │
-  │─────────────────────────▶│                              │
-  │                          │  proxy.ts intercepts         │
-  │                          │  → no session cookie         │
-  │  302 → /api/auth/login   │                              │
-  │◀─────────────────────────│                              │
-  │                          │                              │
-  │  GET /api/auth/login     │                              │
-  │─────────────────────────▶│                              │
-  │                          │  generate state, store in    │
-  │                          │  temp httpOnly cookie        │
-  │  307 → /api/idp/authorize│                              │
-  │◀─────────────────────────│                              │
-  │                          │                              │
-  │  GET /api/idp/authorize  │                              │
-  │─────────────────────────────────────────────────────────▶
-  │  HTML login form         │                              │
-  │◀─────────────────────────────────────────────────────────
-  │                          │                              │
-  │  POST /api/idp/authorize │                              │
-  │  (credentials)           │                              │
-  │─────────────────────────────────────────────────────────▶
-  │                          │                              │
-  │  307 → /api/auth/callback?code=...&state=...            │
-  │◀─────────────────────────────────────────────────────────
-  │                          │                              │
-  │  GET /api/auth/callback  │                              │
-  │─────────────────────────▶│                              │
-  │                          │  validate state              │
-  │                          │  POST /api/idp/token ───────▶│
-  │                          │◀─── { access_token, ... } ───│
-  │                          │  encrypt tokens in           │
-  │                          │  httpOnly session cookie     │
-  │  307 → /dashboard        │                              │
-  │◀─────────────────────────│                              │
-  │                          │                              │
-  │  GET /dashboard          │                              │
-  │─────────────────────────▶│                              │
-  │                          │  proxy.ts: session valid     │
-  │                          │  Server Component reads user │
-  │  200 HTML                │  from encrypted cookie       │
-  │◀─────────────────────────│                              │
-```
+High-level flow:
 
-### Token refresh (proxy — proactive)
+1. `src/proxy.ts` protects private routes and redirects unauthenticated requests to `/api/auth/login`.
+2. `/api/auth/login` creates OAuth `state` in the encrypted session and redirects to `/api/idp/authorize`.
+3. `/api/auth/callback` validates `state`, exchanges `code` on `/api/idp/token`, and stores tokens in the `httpOnly` cookie.
+4. `src/proxy.ts` keeps sessions fresh with proactive token refresh before access token expiry.
 
-When `proxy.ts` intercepts a request and detects the access token expires in less than 2 minutes, it fetches a new token from the IdP server-to-server, updates the encrypted cookie, and continues — the user never notices.
-
-### Token refresh (authFetch — reactive)
-
-`lib/authFetch.ts` wraps `fetch` for use inside Route Handlers and Server Components. If the upstream call returns `401`, it refreshes the token, updates the session, and retries the request once before throwing `AuthError`.
+The sequence diagram below is the source of truth for request/response statuses and redirects.
 
 ---
 
@@ -75,10 +29,10 @@ sequenceDiagram
     User->>Browser: navigate to /dashboard
     Browser->>Next: GET /dashboard
     Next->>Next: proxy.ts — no session cookie
-    Next-->>Browser: 302 /api/auth/login
+    Next-->>Browser: 307 /api/auth/login
 
     Browser->>Next: GET /api/auth/login
-    Next->>Next: generate state, set temp cookie
+    Next->>Next: generate state, persist in session cookie
     Next-->>Browser: 307 /api/idp/authorize
 
     Browser->>IdP: GET /api/idp/authorize
@@ -87,10 +41,10 @@ sequenceDiagram
     User->>Browser: submit credentials
     Browser->>IdP: POST /api/idp/authorize
     IdP->>IdP: validate credentials, create auth code
-    IdP-->>Browser: 307 /api/auth/callback?code=…&state=…
+    IdP-->>Browser: 303 /api/auth/callback?code=…&state=…
 
     Browser->>Next: GET /api/auth/callback
-    Next->>Next: validate state cookie
+    Next->>Next: validate state in session
     Next->>IdP: POST /api/idp/token (server-to-server)
     IdP-->>Next: { access_token, refresh_token, expires_in }
     Next->>Next: encrypt tokens → httpOnly session cookie
@@ -110,7 +64,7 @@ sequenceDiagram
     note over Browser,Next: --- Logout ---
     User->>Browser: click "Cerrar sesión"
     Browser->>Next: GET /api/auth/logout
-    Next->>IdP: POST /api/idp/logout (revoke tokens)
+    Next->>IdP: POST /api/idp/logout (notify IdP mock + revoke refresh tokens)
     Next->>Next: destroy session cookie
     Next-->>Browser: 307 / (Max-Age=0 cookie)
 ```
@@ -173,16 +127,14 @@ Access and refresh tokens stored in `localStorage` or returned as JSON are reach
 
 Doing the token exchange on the server means the browser never sees the raw tokens. The server-to-server call to `/api/idp/token` stays within the Node.js process; only an opaque encrypted blob reaches the client.
 
-### Why `proxy.ts` and not `middleware.ts`?
-
-Next.js 16 deprecated `middleware.ts` and renamed the file convention to `proxy.ts` (function renamed from `middleware` to `proxy`). The behaviour is identical — it intercepts every request before routing. See the [migration guide](https://nextjs.org/docs/app/api-reference/file-conventions/proxy#migration-to-proxy).
-
 ### Token refresh strategy
 
 Two layers of defence:
 
 1. **Proactive (proxy.ts):** If the access token expires in less than 2 minutes, the proxy refreshes it before the page renders. The user is never interrupted.
-2. **Reactive (authFetch.ts):** If a server-side `fetch` to a protected resource returns `401` (e.g. clock skew), the helper refreshes the token and retries once before throwing `AuthError`.
+2. **Reactive (authFetch.ts):** If a future server-side `fetch` to a protected resource returns `401` (e.g. clock skew), the helper refreshes the token and retries once before throwing `AuthError`.
+
+Refresh requests are bound to the OAuth client identifier stored by the mock IdP, so a refresh token cannot be replayed under a different client.
 
 ---
 
@@ -194,8 +146,8 @@ src/
 │   ├── api/
 │   │   ├── auth/
 │   │   │   ├── callback/route.ts   — exchanges auth code for tokens
-│   │   │   ├── login/route.ts      — initiates OAuth flow (GET) / direct login (POST)
-│   │   │   └── logout/route.ts     — destroys session, revokes IdP tokens
+│   │   │   ├── login/route.ts      — initiates the OAuth flow
+│   │   │   └── logout/route.ts     — destroys session, notifies the IdP mock
 │   │   └── idp/
 │   │       ├── authorize/route.ts  — mock IdP login page + code issuance
 │   │       ├── logout/route.ts     — revokes refresh tokens
@@ -204,7 +156,8 @@ src/
 │   ├── dashboard/page.tsx          — protected server component
 │   └── page.tsx                    — public landing page
 ├── lib/
-│   ├── authFetch.ts                — authenticated fetch with transparent retry
+│   ├── authFetch.ts                — authenticated fetch helper with transparent retry
+│   ├── auth-client.ts              — shared OAuth client identifier
 │   ├── mock-idp.ts                 — in-memory IdP store + JWT helpers
 │   └── session.ts                  — iron-session read/write helpers
 └── proxy.ts                        — route protection + proactive token refresh

@@ -1,21 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import { type NextRequest, NextResponse } from "next/server";
-import {
-  validateDemoCredentials,
-  getDemoUser,
-  createAccessToken,
-  createRefreshToken,
-  buildTokenResponse,
-} from "@/lib/mock-idp";
-import { saveAuthSession } from "@/lib/session";
+
+import { AUTH_CLIENT_ID } from "@/lib/auth-client";
+import { getAuthSessionForRequest } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-export const AUTH_CLIENT_ID = "nextjs-server-app";
-
-const AUTH_STATE_COOKIE_NAME = "decathlon_oauth_state";
 
 export async function GET(request: NextRequest) {
   const state = randomUUID();
@@ -27,52 +18,18 @@ export async function GET(request: NextRequest) {
   authorizeUrl.searchParams.set("state", state);
   authorizeUrl.searchParams.set("response_type", "code");
 
+  console.log("[AuthLogin] Generating state:", state);
+
   const response = NextResponse.redirect(authorizeUrl, 307);
 
-  response.headers.set("cache-control", "no-store");
-  response.cookies.set(AUTH_STATE_COOKIE_NAME, state, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 600,
-  });
+  response.headers.set("cache-control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  response.headers.set("pragma", "no-cache");
+  response.headers.set("expires", "0");
 
-  return response;
-}
+  const session = await getAuthSessionForRequest(request, response);
 
-export async function POST(request: NextRequest) {
-  const formData = await request.formData();
-  const email = formData.get("email");
-  const password = formData.get("password");
-
-  if (
-    typeof email !== "string" ||
-    typeof password !== "string" ||
-    !validateDemoCredentials(email, password)
-  ) {
-    return NextResponse.redirect(new URL("/?error=invalid_credentials", request.nextUrl.origin));
-  }
-
-  const user = getDemoUser();
-  const accessToken = await createAccessToken(user);
-  const refreshToken = createRefreshToken({
-    clientId: AUTH_CLIENT_ID,
-    user,
-  });
-
-  const tokenResponse = buildTokenResponse({
-    accessToken,
-    refreshToken,
-  });
-
-  const response = NextResponse.redirect(new URL("/dashboard", request.nextUrl.origin));
-
-  await saveAuthSession(request, response, {
-    accessToken: tokenResponse.access_token,
-    refreshToken: tokenResponse.refresh_token,
-    expiresAt: Date.now() + tokenResponse.expires_in * 1000,
-  });
+  session.oauthState = state;
+  await session.save();
 
   return response;
 }

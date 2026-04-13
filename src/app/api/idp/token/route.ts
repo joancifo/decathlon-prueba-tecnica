@@ -7,6 +7,7 @@ import {
   createRefreshToken,
   getRefreshTokenRecord,
 } from "@/lib/mock-idp";
+import { readRequestBodyAsMap } from "@/lib/request-body";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,27 +27,9 @@ function jsonError(error: string, errorDescription: string, status: number) {
   );
 }
 
-async function readTokenRequestBody(request: NextRequest) {
-  const contentType = request.headers.get("content-type") ?? "";
-
-  if (contentType.includes("application/json")) {
-    const body = (await request.json()) as Record<string, unknown>;
-
-    return new Map(
-      Object.entries(body).map(([key, value]) => [key, String(value ?? "")])
-    );
-  }
-
-  const formData = await request.formData();
-
-  return new Map(
-    Array.from(formData.entries()).map(([key, value]) => [key, String(value)])
-  );
-}
-
 export async function POST(request: NextRequest) {
   try {
-    const body = await readTokenRequestBody(request);
+    const body = await readRequestBodyAsMap(request);
     const grantType = body.get("grant_type");
 
     if (grantType === "authorization_code") {
@@ -87,9 +70,14 @@ export async function POST(request: NextRequest) {
 
     if (grantType === "refresh_token") {
       const refreshToken = body.get("refresh_token");
+      const clientId = body.get("client_id");
 
-      if (!refreshToken) {
-        return jsonError("invalid_request", "refresh_token es obligatorio.", 400);
+      if (!refreshToken || !clientId) {
+        return jsonError(
+          "invalid_request",
+          "refresh_token y client_id son obligatorios.",
+          400
+        );
       }
 
       const refreshTokenRecord = getRefreshTokenRecord(refreshToken);
@@ -98,6 +86,14 @@ export async function POST(request: NextRequest) {
         return jsonError(
           "invalid_grant",
           "El refresh token no es valido o ya expiro.",
+          400
+        );
+      }
+
+      if (refreshTokenRecord.clientId !== clientId) {
+        return jsonError(
+          "invalid_grant",
+          "El refresh token no pertenece al client_id indicado.",
           400
         );
       }
