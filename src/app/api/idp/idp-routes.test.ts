@@ -74,7 +74,7 @@ describe("Mock idp route handlers", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
-    expect(html).toContain("Mock identity provider");
+    expect(html).toContain("Iniciar sesión");
     expect(html).toContain("demo@test.com");
   });
 

@@ -1,65 +1,97 @@
-import Image from "next/image";
+import { redirect } from "next/navigation";
+import { getAuthSession, readStoredAuthSession } from "@/lib/session";
 
-export default function Home() {
+export default async function Home(props: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const session = await getAuthSession();
+  const storedSession = readStoredAuthSession(session);
+  const { error } = await props.searchParams;
+
+  if (storedSession) {
+    redirect("/dashboard");
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <main className="min-h-screen flex items-center justify-center bg-zinc-50 p-6">
+      <div className="w-full max-w-sm space-y-6">
+        <div className="rounded-2xl bg-white p-10 shadow-sm ring-1 ring-zinc-200/50">
+          <div className="flex flex-col items-center text-center mb-8">
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
+              Iniciar sesión
+            </h1>
+            <p className="mt-2 text-sm text-zinc-600">
+              Introduce tus credenciales de acceso
+            </p>
+          </div>
+
+          {error && (
+            <div
+              id="login-error"
+              role="alert"
+              className="mb-6 rounded-xl border border-red-200 bg-red-50 p-3 text-center text-sm text-red-900"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              {error === "invalid_credentials"
+                ? "Correo o contraseña incorrectos"
+                : "Ha ocurrido un error inesperado"}
+            </div>
+          )}
+
+          <form action="/api/auth/login" method="POST" className="space-y-4">
+            <div>
+              <label
+                htmlFor="login-email"
+                className="mb-1.5 block text-sm font-medium text-zinc-700"
+              >
+                Correo electrónico
+              </label>
+              <input
+                id="login-email"
+                name="email"
+                type="email"
+                required
+                defaultValue="demo@test.com"
+                autoComplete="email"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? "login-error" : undefined}
+                className="block w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-4 py-2.5 text-sm transition-all focus-visible:border-blue-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500/40"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="login-password"
+                className="mb-1.5 block text-sm font-medium text-zinc-700"
+              >
+                Contraseña
+              </label>
+              <input
+                id="login-password"
+                name="password"
+                type="password"
+                required
+                defaultValue="password123"
+                autoComplete="current-password"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? "login-error" : undefined}
+                className="block w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-4 py-2.5 text-sm transition-all focus-visible:border-blue-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500/40"
+              />
+            </div>
+            <button
+              type="submit"
+              className="mt-4 flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-blue-700 active:scale-[0.98] motion-reduce:active:scale-100"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              Acceder
+            </button>
+          </form>
+
+          <div className="mt-8 pt-6 border-t border-zinc-100">
+            <div className="bg-zinc-50 rounded-xl p-4 text-[11px] text-zinc-500 leading-relaxed">
+              <span className="font-semibold block mb-1 text-zinc-700 uppercase">Credenciales demo:</span>
+              demo@test.com / password123
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }

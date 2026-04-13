@@ -239,50 +239,62 @@ export function buildAuthorizePage(input: {
   errorMessage?: string;
 }) {
   const errorMarkup = input.errorMessage
-    ? `<p style="margin:0 0 16px;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;">${escapeHtml(
-        input.errorMessage
-      )}</p>`
+    ? `<div style="margin-bottom:20px;padding:12px 16px;background-color:#fef2f2;border:1px solid #fee2e2;border-radius:12px;color:#991b1b;font-size:14px;display:flex;align-items:center;gap:8px;">
+        <svg style="width:16px;height:16px;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        <span>${escapeHtml(input.errorMessage)}</span>
+      </div>`
     : "";
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Mock identity provider</title>
+    <title>Iniciar sesión</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f9fafb; color: #111827; -webkit-font-smoothing: antialiased; }
+      main { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+      .card { width: 100%; max-width: 420px; background: #ffffff; border-radius: 20px; padding: 40px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 10px 15px -3px rgba(0, 0, 0, 0.1); border: 1px solid #f3f4f6; }
+      h1 { margin: 0 0 8px; font-size: 24px; font-weight: 700; text-align: center; }
+      .subtitle { margin: 0 0 32px; color: #4b5563; font-size: 15px; text-align: center; }
+      label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 600; color: #374151; }
+      input { width: 100%; padding: 12px 16px; border: 1px solid #d1d5db; border-radius: 10px; font-size: 15px; transition: all 0.2s; background: #f9fafb; margin-bottom: 20px; }
+      input:focus { outline: none; border-color: #2563eb; background: #ffffff; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
+      button { width: 100%; padding: 14px; background: #111827; color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-top: 8px; }
+      button:hover { background: #1f2937; transform: translateY(-1px); }
+      .helper { margin-top: 24px; padding: 16px; background: #f3f4f6; border-radius: 10px; font-size: 13px; color: #4b5563; }
+    </style>
   </head>
-  <body style="margin:0;font-family:Arial,Helvetica,sans-serif;background:#f4f4f5;color:#18181b;">
-    <main style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
-      <section style="width:100%;max-width:420px;background:#ffffff;border-radius:16px;padding:32px;box-shadow:0 20px 45px rgba(0,0,0,0.08);">
-        <h1 style="margin:0 0 8px;font-size:28px;">Mock identity provider</h1>
-        <p style="margin:0 0 24px;color:#52525b;">Inicia sesion con el usuario de demo para emitir un authorization code.</p>
+  <body>
+    <main>
+      <div class="card">
+        <h1>Iniciar sesión</h1>
+        <p class="subtitle">Introduce tus credenciales para continuar</p>
+        
         ${errorMarkup}
+        
         <form method="post">
           <input type="hidden" name="client_id" value="${escapeHtml(input.clientId)}" />
           <input type="hidden" name="redirect_uri" value="${escapeHtml(input.redirectUri)}" />
           <input type="hidden" name="state" value="${escapeHtml(input.state)}" />
           <input type="hidden" name="response_type" value="${escapeHtml(input.responseType)}" />
 
-          <label for="email" style="display:block;margin-bottom:8px;font-size:14px;font-weight:700;">Email</label>
-          <input id="email" name="email" type="email" value="${escapeHtml(
-            DEMO_USER.email
-          )}" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid #d4d4d8;border-radius:10px;margin-bottom:16px;" />
+          <label for="email">Correo electrónico</label>
+          <input id="email" name="email" type="email" value="${escapeHtml(DEMO_USER.email)}" required />
 
-          <label for="password" style="display:block;margin-bottom:8px;font-size:14px;font-weight:700;">Password</label>
-          <input id="password" name="password" type="password" value="${escapeHtml(
-            DEMO_PASSWORD
-          )}" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid #d4d4d8;border-radius:10px;margin-bottom:20px;" />
+          <label for="password">Contraseña</label>
+          <input id="password" name="password" type="password" value="${escapeHtml(DEMO_PASSWORD)}" required />
 
-          <button type="submit" style="width:100%;border:0;border-radius:10px;background:#18181b;color:#ffffff;padding:12px 16px;font-weight:700;cursor:pointer;">
-            Continuar
-          </button>
+          <button type="submit">Acceder</button>
         </form>
 
-        <div style="margin-top:20px;padding:14px;border-radius:10px;background:#f5f5f5;font-size:14px;line-height:1.5;">
-          <div><strong>User:</strong> ${escapeHtml(DEMO_USER.email)}</div>
-          <div><strong>Pass:</strong> ${escapeHtml(DEMO_PASSWORD)}</div>
+        <div class="helper">
+          <div><strong>Credenciales demo:</strong></div>
+          <div>Email: ${escapeHtml(DEMO_USER.email)}</div>
+          <div>Password: ${escapeHtml(DEMO_PASSWORD)}</div>
         </div>
-      </section>
+      </div>
     </main>
   </body>
 </html>`;
