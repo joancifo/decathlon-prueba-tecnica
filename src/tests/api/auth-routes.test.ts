@@ -10,10 +10,10 @@ import { POST as tokenPost } from "@/app/api/idp/token/route";
 import { resetMockIdpStore } from "@/lib/mock-idp";
 import { getAuthSessionForRequest, readStoredAuthSession } from "@/lib/session";
 import {
-  extractCookieValue,
-  extractSetCookieHeaders,
-  findCookie,
-} from "@/test/cookie-helpers";
+    extractCookieValue,
+    extractSetCookieHeaders,
+    findCookie,
+} from "@/lib/test/cookie-helpers";
 
 function createInternalFetchResponse(url: URL, init?: RequestInit) {
   const method = init?.method ?? "GET";

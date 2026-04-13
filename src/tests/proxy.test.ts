@@ -2,13 +2,13 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AUTH_CLIENT_ID } from "@/lib/auth-client";
-import { proxy, config } from "@/proxy";
 import { getAuthSessionForRequest, readStoredAuthSession, saveAuthSession } from "@/lib/session";
 import {
-  extractCookieValue,
-  extractSetCookieHeaders,
-  findCookie,
-} from "@/test/cookie-helpers";
+    extractCookieValue,
+    extractSetCookieHeaders,
+    findCookie,
+} from "@/lib/test/cookie-helpers";
+import { config, proxy } from "@/proxy";
 
 async function createSessionCookie(expiresAt: number) {
   const request = new NextRequest("http://localhost:3000/api/test");

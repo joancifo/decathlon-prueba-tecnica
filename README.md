@@ -127,6 +127,10 @@ Access and refresh tokens stored in `localStorage` or returned as JSON are reach
 
 Doing the token exchange on the server means the browser never sees the raw tokens. The server-to-server call to `/api/idp/token` stays within the Node.js process; only an opaque encrypted blob reaches the client.
 
+### Why `proxy.ts` and not `middleware.ts`?
+
+Next.js 16 deprecated `middleware.ts` and renamed the file convention to `proxy.ts` (function renamed from `middleware` to `proxy`). The behaviour is identical — it intercepts every request before routing. See the [migration guide](https://nextjs.org/docs/app/api-reference/file-conventions/proxy#migration-to-proxy).
+
 ### Token refresh strategy
 
 Two layers of defence:
